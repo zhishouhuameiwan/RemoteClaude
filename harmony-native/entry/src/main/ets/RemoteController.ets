@@ -10,7 +10,7 @@ import {
   answerMessage, approvalAnswerMessage, authMessage, closeWindowMessage, fileBeginEvent, fileCancelEvent, fileEndEvent,
   hostCmdMessage, hostUpdateMessage, iceMessage, imageBeginEvent, imageEndEvent, listMessage, listSessionsMessage,
   lockNowEvent, newSessionMessage, openSessionMessage, pushRegisterMessage, pushUnregisterMessage, selectMessage,
-  stopMessage, tileEvent, unlockEvent, BUTTON_LEFT, BUTTON_RIGHT
+  stopMessage, tileEvent, unlockEvent, withDetail, BUTTON_LEFT, BUTTON_RIGHT
 } from './protocol/Protocol';
 import { parseServerAddress, restoreServerAddress, ServerAddressResult } from './protocol/ServerAddress';
 import { UnlockCipher } from './protocol/UnlockCipher';
@@ -1266,9 +1266,9 @@ export class RemoteController {
         onConnectionState: (state: string) => this.onConnectionState(session, state),
         onInputOpen: () => {
         },
-        onInputError: (code: string) => {
+        onInputError: (code: string, detail: string | null) => {
           if (this.peer === session) {
-            this.toast(this.errorText(code));
+            this.toast(withDetail(this.errorText(code), detail));
           }
         },
         onImageReply: (reply: ImageReply) => {

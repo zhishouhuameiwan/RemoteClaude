@@ -109,8 +109,29 @@ class ProtocolTest {
 
     @Test
     fun parsesInputErrorFromDataChannel() {
-        assertEquals("covered", Protocol.parseInputError("""{"t":"err","code":"covered"}"""))
+        assertEquals(InputError("covered", null), Protocol.parseInputError("""{"t":"err","code":"covered"}"""))
+        assertEquals(InputError("unknown", null), Protocol.parseInputError("""{"t":"err"}"""))
         assertNull(Protocol.parseInputError("""{"t":"m","x":0.5,"y":0.5}"""))
+    }
+
+    @Test
+    fun inputErrorCarriesHostDetail() {
+        val e = Protocol.parseInputError("""{"t":"err","code":"front-failed","detail":"最前面是管理员权限的「任务管理器」（taskmgr.exe）"}""")
+        assertEquals(InputError("front-failed", "最前面是管理员权限的「任务管理器」（taskmgr.exe）"), e)
+        assertEquals("电脑上无法把该窗口切到前台：最前面是管理员权限的「任务管理器」（taskmgr.exe）", e?.withDetail("电脑上无法把该窗口切到前台"))
+        // 没有说明（旧版被控端）时提示不变
+        assertEquals("该窗口已关闭", InputError("window-gone", null).withDetail("该窗口已关闭"))
+    }
+
+    @Test
+    fun inputErrorDetailIsCleaned() {
+        // 控制字符去掉、首尾空白去掉，空的当作没有，不是字符串的不认
+        assertEquals("ab", Protocol.parseInputError("""{"t":"err","code":"x","detail":"  a\nb\u0007\u0085 "}""")?.detail)
+        assertNull(Protocol.parseInputError("""{"t":"err","code":"x","detail":"   "}""")?.detail)
+        assertNull(Protocol.parseInputError("""{"t":"err","code":"x","detail":12}""")?.detail)
+        // 太长的截掉
+        val long = "字".repeat(Protocol.DETAIL_MAX + 50)
+        assertEquals(Protocol.DETAIL_MAX, Protocol.parseInputError("""{"t":"err","code":"x","detail":"$long"}""")?.detail?.length)
     }
 
     @Test

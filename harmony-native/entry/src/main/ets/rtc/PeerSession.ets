@@ -11,7 +11,7 @@ export interface PeerCallbacks {
   onVideoTrack: (track: webrtc.MediaStreamTrack) => void;
   onConnectionState: (state: string) => void;
   onInputOpen: () => void;
-  onInputError: (code: string) => void;
+  onInputError: (code: string, detail: string | null) => void;
   onImageReply: (reply: ImageReply) => void;
   onLockState: (state: LockState) => void;
   onUnlockResult: (result: UnlockResult) => void;
@@ -156,7 +156,7 @@ export class PeerSession {
         this.callbacks.onFileCaps(msg.max);
         break;
       case 'err':
-        this.callbacks.onInputError(msg.code);
+        this.callbacks.onInputError(msg.code, msg.detail);
         break;
     }
   }

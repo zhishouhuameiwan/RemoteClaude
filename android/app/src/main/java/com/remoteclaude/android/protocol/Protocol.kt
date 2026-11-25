@@ -335,10 +335,21 @@ object Protocol {
         return UnlockResult(id, if (obj.bool("ok") == true) null else obj.string("code") ?: "failed")
     }
 
-    fun parseInputError(text: String): String? {
+    /** 被控端拒绝了一次输入（协议文档第 5 节）；不是这条消息时返回 null */
+    fun parseInputError(text: String): InputError? {
         val obj = parseObject(text) ?: return null
-        return if (obj.string("t") == "err") obj.string("code") ?: "unknown" else null
+        if (obj.string("t") != "err") return null
+        return InputError(obj.string("code") ?: "unknown", cleanDetail(obj.string("detail")))
     }
+
+    /** 被控端写的补充说明：去掉控制字符和首尾空白，最多 [DETAIL_MAX] 个字符，空的当作没有 */
+    private fun cleanDetail(raw: String?): String? {
+        val text = raw?.filterNot { it.isISOControl() }?.trim()?.take(DETAIL_MAX)
+        return text?.takeIf { it.isNotEmpty() }
+    }
+
+    /** 输入错误的补充说明最多显示这么多个字符 */
+    const val DETAIL_MAX = 200
 
     /** 电脑上新复制的文字的其中一块（协议文档 4.9，被控端 0.9.9 起）；不是这条消息或格式不对时返回 null */
     fun parseClipChunk(text: String): ClipChunk? {
@@ -599,6 +610,15 @@ fun JsonObject.long(key: String): Long? {
  */
 /** 被控端对一张图片的回执；[code] 为 null 表示已经粘贴进去 */
 data class ImageReply(val id: String, val code: String?)
+
+/**
+ * 被控端拒绝了一次输入。[detail] 是被控端写好的补充说明（被控端 0.9.30 起，比如切不到前台时挡在最前面的是谁），
+ * 旧版被控端不发，为 null
+ */
+data class InputError(val code: String, val detail: String?) {
+    /** 按错误码翻好的提示后面接上补充说明 */
+    fun withDetail(text: String): String = if (detail == null) text else "$text：$detail"
+}
 
 /**
  * 被控端对一个文件的回执。[path] 不为 null 表示文件已经存到电脑上（[name] 是实际存的文件名，同名时会加编号），

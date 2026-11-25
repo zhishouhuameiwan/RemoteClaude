@@ -871,10 +871,11 @@ function unlock(viewerId, peer, ev) {
   });
 }
 
-// 主进程拒绝了某次输入（窗口切不到前台、被挡住、已关闭），告诉对应的控制端
-bridge.onInputError((viewerId, code) => {
+// 主进程拒绝了某次输入（窗口切不到前台、被挡住、已关闭），告诉对应的控制端。
+// detail 是被控端写好的补充说明（比如挡在最前面的是谁），控制端接在提示后面
+bridge.onInputError((viewerId, code, detail) => {
   const p = peers.get(viewerId);
-  if (p && p.dc && p.dc.readyState === 'open') p.dc.send(JSON.stringify({ t: 'err', code }));
+  if (p && p.dc && p.dc.readyState === 'open') p.dc.send(JSON.stringify(detail ? { t: 'err', code, detail } : { t: 'err', code }));
 });
 
 // ---------------------------------------------------------------- 登录与界面切换

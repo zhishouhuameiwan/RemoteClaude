@@ -1071,6 +1071,38 @@ App、协议、插件都没改：提醒本来就是一条提问，多一个选�
 
 **提交和发布**（2026-11-24，用户选了"提交推送并装上"）：`claude plugin marketplace update remoteclaude-local`、`claude plugin update remoteclaude@remoteclaude-local`，1.0.10 → 1.0.11。装好的那份和仓库里的 `scripts/` 四个文件、`hooks.json`、`plugin.json` 逐个比过，一致；没有叫醒记录时空跑 `stalebox.js` 退出码 0。之后新开的会话生效，还开着的会话继续用它们启动时加载的 1.0.10。被控端和 App 没改。
 
+### 2.40 "无法把该窗口切到前台"说出是谁挡着（被控端 0.9.30，2026-11-24，本机）
+
+**起因**。用户说很多被控端没有显示器、或者显示器关着电源，手机上"一直提示电脑上无法把该窗口切换到前台"，问是什么原因。这个提示是 `ensureFront` 里三种切前台的办法（`win32.bringToFront`）都没成、电脑又没锁屏时报的（协议第 5 节 `front-failed`），以前不写日志、也不带原因，从现场分不出是哪种。
+
+**最可能的原因**（推断，出问题的电脑没看到）：最前面是以管理员权限运行的窗口。被控端是普通权限，Windows 不让它把这种窗口换下去，也不让它往里发键盘鼠标，三种办法都会失败，而且会一直失败。没显示器的电脑都是远程维护的，任务管理器、管理员终端、安装程序、远程控制软件的窗口留在最前面很常见。另一种可能是远程桌面连着但窗口最小化了。用户选了"先让提示直接说出挡在最前面的是哪个程序"。
+
+| 文件 | 改动 |
+|---|---|
+| `host/win32.js` | 新增 `processElevation(pid)`（读进程令牌的 TokenElevation：`elevated` / `normal`；令牌读不了是 `denied`，权限比被控端高；进程打不开是 `unknown`）和 `foregroundInfo()`（前台窗口的程序名、标题、权限，没有前台窗口时为 null）。`bringToFront` 判断成没成改用 `isFront`：目标窗口弹出的附属窗口在前台也算，和 `ensureFront` 开头的判断一致，以前这种情况会误报失败 |
+| `host/frontblock.js`（新） | 措辞和去重：给控制端的补充说明（"最前面是管理员权限的「任务管理器」（taskmgr.exe），被控端切不走它，请在电脑上关掉或最小化它"；被控端自己是管理员权限时不说"切不走它"），日志里的一行（同一个程序、同样的权限 10 秒内只记一次，标题不算：终端、浏览器的标题会跟着内容变），说明只用 3 秒内的那次失败；标题按字符截，不切开表情 |
+| `host/main.js` | `ensureFront` 切不过去、电脑又没锁屏时记下前台信息（粘贴图片、文件走的也是这里，都会记日志；锁屏时切不过去是锁屏的缘故，不记）；`reportError` 报 `front-failed` 时带上 `detail`；启动时看一次被控端自己是不是管理员权限 |
+| `host/preload.js`、`host/renderer.js` | `rc:input-error` 多带一个 `detail`，有的话放进 `{ t: "err" }` |
+| 安卓 `Protocol.kt`、`PeerSession.kt`、`RemoteController.kt` | `parseInputError` 返回 `InputError(code, detail)`，提示后面接上说明 |
+| 鸿蒙 `Protocol.ts`、`PeerSession.ets`、`RemoteController.ets` | `err` 消息多一个 `detail`，`withDetail` 接到提示后面 |
+| `web/app.js` | 同上 |
+| [03](03-protocol.md) 第 5 节 | 写明 `detail` |
+
+图片、文件的回执（4.5、4.8）没有带说明，切不到前台时手机上还是原来的提示，原因在 `host.log` 里。
+
+**验证**：
+
+| 项 | 结果 |
+|---|---|
+| 被控端测试 | 289 个通过，新增 15 个（`test/frontblock.test.js`：管理员权限、令牌读不了、普通权限、没标题、没程序名、都没有、被控端自己是管理员权限、没有前台窗口、长标题截断、表情不切开、日志行、日志去重、标题在变照样去重、换了程序马上记、说明不受日志去重影响、过期不用） |
+| 独立评审（code-reviewer） | 没有 CRITICAL、HIGH。按它的意见改了：被控端自己提权时的措辞、锁屏时不记日志、日志去重不算标题、按字符截标题、去掉一个用不到的分支、`frontBlock` 挪到用它的函数前面、鸿蒙的两个新测试原来套在旧测试里面。没改的一条：切换失败到取前台信息之间前台恰好又变了，说明会指错，这个窗口很短，不为它加分支 |
+| 安卓单元测试（JDK 17） | 编译通过，94 个通过，新增 2 个（带说明、说明的清理，含 U+0085 这类 0x7f–0x9f 的控制字符），原来的一个改成比 `InputError` |
+| 鸿蒙 | 逻辑测试 94 个通过，新增 2 个；不签名完整编了一次调试版（`RC_ALLOW_UNSIGNED=1 scripts/build.sh debug`），ArkTS 编译通过 |
+| 网页 | `node --check` 通过；`withDetail` 单独跑了几种输入 |
+| 本机实测权限判断 | 普通 node 里调新的 `win32`：被控端自己、资源管理器是 `normal`；会话 1 里 18 个进程（华硕的后台程序、`conhost` 等）是 `elevated`；以 SYSTEM 运行的解锁服务、`audiodg` 是 `denied`；`winlogon`、`lsass`、`csrss`、不存在的进程是 `unknown`。当时前台是 ToDesk 的窗口，说明写成"最前面是「家用电脑」（todesk.exe）" |
+
+**没验证**：真有管理员权限的窗口挡在最前面时，被控端是不是真的切不到前台、手机上是不是这句提示——这要在电脑上开一个管理员窗口放到最前面（弹 UAC），再从手机点一下，没做；改过的 `main.js`、`renderer.js` 只过了语法检查，没在真的被控端和 App 上走一遍。出问题的那些电脑升级以后，看 `host.log` 里"切不到前台，最前面是……"那几行就知道原因。
+
 ## 3. 任务清单
 
 优先级：P0 是做完才算可用，P1 是日常使用需要，P2 是改进。

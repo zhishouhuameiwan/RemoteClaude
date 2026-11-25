@@ -47,7 +47,7 @@ contextBridge.exposeInMainWorld('rc', {
   unlockEnc: (enc) => ipcRenderer.invoke('rc:unlock-enc', enc),
   setActive: (count) => ipcRenderer.send('rc:active', count),
   setStatus: (kind, text) => ipcRenderer.send('rc:status', kind, text),
-  onInputError: (cb) => ipcRenderer.on('rc:input-error', (_e, viewerId, code) => cb(viewerId, code)),
+  onInputError: (cb) => ipcRenderer.on('rc:input-error', (_e, viewerId, code, detail) => cb(viewerId, code, detail)),
   // 电脑上新复制的文字，已经整理成要发给控制端的消息（协议文档 4.9）
   onClipboard: (cb) => ipcRenderer.on('rc:clipboard', (_e, msgs) => cb(msgs)),
 });

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BUTTON_RIGHT,
+  DETAIL_MAX,
   MOD_SHIFT,
   PROTOCOL_VERSION,
   THUMBS_DONE,
@@ -41,6 +42,7 @@ import {
   unlockEvent,
   upEvent,
   wheelEvent,
+  withDetail,
 } from '../entry/src/main/ets/protocol/Protocol';
 import type { Incoming } from '../entry/src/main/ets/protocol/Protocol';
 
@@ -171,9 +173,28 @@ test('不认识的和格式不对的返回 null', () => {
 });
 
 test('数据通道上的输入错误', () => {
-  assert.deepEqual(parseChannelMessage('{"t":"err","code":"covered"}'), { t: 'err', code: 'covered' });
+  assert.deepEqual(parseChannelMessage('{"t":"err","code":"covered"}'), { t: 'err', code: 'covered', detail: null });
   assert.equal(parseChannelMessage('{"t":"m","x":0.5,"y":0.5}'), null);
   assert.equal(parseChannelMessage('不是 JSON'), null);
+});
+
+test('输入错误带着被控端写的补充说明', () => {
+  const detail = '最前面是管理员权限的「任务管理器」（taskmgr.exe）';
+  assert.deepEqual(parseChannelMessage(JSON.stringify({ t: 'err', code: 'front-failed', detail })), { t: 'err', code: 'front-failed', detail });
+  assert.equal(withDetail('电脑上无法把该窗口切到前台', detail), `电脑上无法把该窗口切到前台：${detail}`);
+  // 没有说明（旧版被控端）时提示不变
+  assert.equal(withDetail('该窗口已关闭', null), '该窗口已关闭');
+});
+
+test('输入错误的补充说明：去掉控制字符和首尾空白，空的、不是字符串的不认，太长的截掉', () => {
+  const detailOf = (d: unknown): string | null => {
+    const m = parseChannelMessage(JSON.stringify({ t: 'err', code: 'x', detail: d }));
+    return m !== null && m.t === 'err' ? m.detail : 'not-err';
+  };
+  assert.equal(detailOf(' a\nb\u0007\u0085 '), 'ab');
+  assert.equal(detailOf('   '), null);
+  assert.equal(detailOf(12), null);
+  assert.equal(detailOf('字'.repeat(DETAIL_MAX + 50))?.length, DETAIL_MAX);
 });
 
 test('登录和信令消息', () => {
@@ -291,7 +312,7 @@ test('图片回执', () => {
     reply: { id: 'k3f9a2', code: 'image-bad' },
   });
   // 不带 id 的错误是普通输入错误
-  assert.deepEqual(parseChannelMessage('{"t":"err","code":"covered"}'), { t: 'err', code: 'covered' });
+  assert.deepEqual(parseChannelMessage('{"t":"err","code":"covered"}'), { t: 'err', code: 'covered', detail: null });
   assert.equal(parseChannelMessage('{"t":"img-ok"}'), null);
 });
 

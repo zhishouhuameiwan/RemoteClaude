@@ -475,7 +475,27 @@ export type ChannelMessage =
   | { t: 'unlock-result'; result: UnlockResult }
   | { t: 'image-reply'; reply: ImageReply }
   | { t: 'file-caps'; max: number }
-  | { t: 'err'; code: string };
+  | { t: 'err'; code: string; detail: string | null };
+
+/** 输入错误的补充说明最多显示这么多个字符 */
+export const DETAIL_MAX = 200;
+
+/** 被控端写的补充说明：去掉控制字符和首尾空白，最多 DETAIL_MAX 个字符，空的当作没有 */
+function cleanDetail(raw: string | null): string | null {
+  if (raw === null) {
+    return null;
+  }
+  const text = raw.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, DETAIL_MAX);
+  return text.length > 0 ? text : null;
+}
+
+/**
+ * 按错误码翻好的提示后面接上被控端的补充说明（协议第 5 节的 detail，被控端 0.9.30 起，
+ * 比如切不到前台时挡在最前面的是谁）；没有说明时提示不变
+ */
+export function withDetail(text: string, detail: string | null): string {
+  return detail === null ? text : `${text}：${detail}`;
+}
 
 /** 剪贴板分块的上限，见 ClipAssembler */
 export const CLIP_MAX_CHUNKS = 256;
@@ -518,7 +538,7 @@ export function parseChannelMessage(text: string): ChannelMessage | null {
       const code = str(o, 'code') ?? 'unknown';
       const id = str(o, 'id');
       // 带 id 的是图片的错误回执（协议 4.5），不带的是一般的输入错误（第 5 节）
-      return id !== null ? { t: 'image-reply', reply: { id, code } } : { t: 'err', code };
+      return id !== null ? { t: 'image-reply', reply: { id, code } } : { t: 'err', code, detail: cleanDetail(str(o, 'detail')) };
     }
     default:
       return null;

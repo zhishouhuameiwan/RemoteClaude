@@ -64,6 +64,17 @@
     'failed': '解锁失败',
     'bad-op': '电脑上的被控端不认这个命令，请升级被控端',
   };
+  /** 输入错误的补充说明最多显示这么多个字符 */
+  const DETAIL_MAX = 200;
+  /**
+   * 提示后面接上被控端写的补充说明（协议文档第 5 节的 detail，比如切不到前台时挡在最前面的是谁）。
+   * 去掉控制字符和首尾空白；没有说明、不是字符串时提示不变
+   */
+  function withDetail(text, detail) {
+    if (typeof detail !== 'string') return text;
+    const d = detail.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, DETAIL_MAX);
+    return d ? `${text}：${d}` : text;
+  }
   /** 不打开会话窗口就锁定、解锁，要被控端从这个版本起（协议文档 2.9） */
   const HOST_CMD_MIN_VERSION = '0.9.6';
   const UNLOCK_REPLY_TIMEOUT_MS = 30000;
@@ -615,7 +626,7 @@
           if (w) w.done(ev.ok === true ? 'ok' : (typeof ev.code === 'string' && ev.code) || 'failed');
           return;
         }
-        if (ev.t === 'err') toast(ERROR_TEXT[ev.code] || '操作失败');
+        if (ev.t === 'err') toast(withDetail(ERROR_TEXT[ev.code] || '操作失败', ev.detail));
       };
     };
     conn.onicecandidate = (e) => {

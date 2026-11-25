@@ -32,6 +32,7 @@ const { isClosable } = require('./sessions');
 const { sortByPosition } = require('./winorder');
 const { createLogFile, teeConsole } = require('./logfile');
 const { createClipWatch } = require('./clipwatch');
+const { createFrontBlock } = require('./frontblock');
 
 const MAX_TEXT = 20000;
 
@@ -549,6 +550,11 @@ const clipWatch = createClipWatch({
 const held = new Map();
 const lastErrorAt = new Map();
 let chain = Promise.resolve(); // 所有输入事件串行执行，保证顺序
+/** 切不到前台时记下挡在最前面的是谁：写日志，给控制端的提示补一句说明 */
+const frontBlock = createFrontBlock({
+  log: (line) => console.log(line),
+  selfElevated: win32.processElevation(process.pid) === 'elevated',
+});
 
 /** 切不到前台时，分清是电脑锁屏了还是别的原因 */
 function frontFailure() {
@@ -561,17 +567,25 @@ function reportError(viewerId, code) {
   const key = viewerId + ':' + code;
   if (now - (lastErrorAt.get(key) || 0) < 1500) return;
   lastErrorAt.set(key, now);
-  if (mainWindow) mainWindow.webContents.send('rc:input-error', viewerId, code);
+  // 切不到前台时补一句是谁挡在最前面（协议文档第 5 节的 detail）
+  const detail = code === 'front-failed' ? frontBlock.detail() : null;
+  if (mainWindow) mainWindow.webContents.send('rc:input-error', viewerId, code, detail);
 }
 
-/** 确保目标窗口在前台；切换后稍等片刻让系统完成激活 */
+/**
+ * 确保目标窗口在前台；切换后稍等片刻让系统完成激活。
+ * 切不过去、电脑又没锁屏时，记下挡在最前面的是谁（锁屏时切不过去是锁屏的缘故，不记）
+ */
 async function ensureFront(hwnd) {
   if (win32.isFront(hwnd)) return true;
   // 这是为远程输入切的前台，不要触发平铺的"把所有会话窗口提到最前"
   if (tiler) tiler.ignoreActivation();
-  if (!win32.bringToFront(hwnd)) return false;
-  await sleep(60);
-  return win32.isFront(hwnd);
+  if (win32.bringToFront(hwnd)) {
+    await sleep(60);
+    if (win32.isFront(hwnd)) return true;
+  }
+  if (!win32.isLocked()) frontBlock.note(win32.foregroundInfo());
+  return false;
 }
 
 function isFiniteNum(v) {

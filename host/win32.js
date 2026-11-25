@@ -13,6 +13,7 @@ const koffi = require('koffi');
 const user32 = koffi.load('user32.dll');
 const kernel32 = koffi.load('kernel32.dll');
 const dwmapi = koffi.load('dwmapi.dll');
+const advapi32 = koffi.load('advapi32.dll');
 
 // ---------------------------------------------------------------- 类型
 
@@ -80,6 +81,10 @@ const CloseHandle = kernel32.func('bool __stdcall CloseHandle(uintptr_t handle)'
 const QueryFullProcessImageNameW = kernel32.func(
   'bool __stdcall QueryFullProcessImageNameW(uintptr_t handle, uint32_t flags, _Out_ uint16_t *buf, _Inout_ uint32_t *size)'
 );
+const OpenProcessToken = advapi32.func('bool __stdcall OpenProcessToken(uintptr_t process, uint32_t access, _Out_ uintptr_t *token)');
+const GetTokenInformation = advapi32.func(
+  'bool __stdcall GetTokenInformation(uintptr_t token, int cls, _Out_ uint32_t *info, uint32_t len, _Out_ uint32_t *retLen)'
+);
 
 const DwmGetWindowAttribute = dwmapi.func(
   'long __stdcall DwmGetWindowAttribute(uintptr_t hWnd, uint32_t attr, _Out_ RECT *value, uint32_t size)'
@@ -93,6 +98,8 @@ const GA_ROOT = 2;
 const GW_OWNER = 4;
 const DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+const TOKEN_QUERY = 0x0008;
+const TOKEN_ELEVATION = 20; // TOKEN_INFORMATION_CLASS.TokenElevation
 
 const SM_XVIRTUALSCREEN = 76;
 const SM_YVIRTUALSCREEN = 77;
@@ -205,6 +212,41 @@ function processExePath(pid) {
   } finally {
     CloseHandle(h);
   }
+}
+
+/**
+ * 进程是不是以管理员权限运行：'elevated' 提了权；'normal' 没提权；'denied' 连令牌都读不了，
+ * 说明它的权限比被控端高（提了权的程序、系统进程）；'unknown' 打不开这个进程。
+ */
+function processElevation(pid) {
+  if (!pid) return 'unknown';
+  const h = num(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid));
+  if (!h) return 'unknown';
+  try {
+    const token = [0];
+    if (!OpenProcessToken(h, TOKEN_QUERY, token)) return 'denied';
+    const t = num(token[0]);
+    try {
+      const value = [0];
+      if (!GetTokenInformation(t, TOKEN_ELEVATION, value, 4, [0])) return 'unknown';
+      return value[0] ? 'elevated' : 'normal';
+    } finally {
+      CloseHandle(t);
+    }
+  } finally {
+    CloseHandle(h);
+  }
+}
+
+/**
+ * 现在挡在最前面的是谁：切不到前台时告诉用户该去电脑上关掉哪个窗口（host/frontblock.js）。
+ * 电脑上没有前台窗口时返回 null。
+ */
+function foregroundInfo() {
+  const fg = num(GetForegroundWindow());
+  if (!fg) return null;
+  const pid = windowPid(fg);
+  return { exe: processExeName(pid), title: windowTitle(fg), elevation: processElevation(pid) };
 }
 
 const LockWorkStation = user32.func('bool __stdcall LockWorkStation()');
@@ -332,14 +374,14 @@ function sendInputs(inputs) {
 
 /**
  * 把窗口切到前台。Windows 限制后台进程抢前台，所以依次尝试几种办法。
- * 返回最终是否成功。
+ * 返回最终是否成功：目标窗口或它弹出的附属窗口在前台都算，和 isFront 一样。
  */
 function bringToFront(hwnd) {
   if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
-  if (num(GetForegroundWindow()) === hwnd) return true;
+  if (isFront(hwnd)) return true;
 
   SetForegroundWindow(hwnd);
-  if (num(GetForegroundWindow()) === hwnd) return true;
+  if (isFront(hwnd)) return true;
 
   // 办法二：临时挂接到当前前台线程的输入队列，借用它的"前台权限"
   const fg = num(GetForegroundWindow());
@@ -349,13 +391,13 @@ function bringToFront(hwnd) {
   BringWindowToTop(hwnd);
   SetForegroundWindow(hwnd);
   if (attached) AttachThreadInput(self, fgThread, false);
-  if (num(GetForegroundWindow()) === hwnd) return true;
+  if (isFront(hwnd)) return true;
 
   // 办法三：按住 Alt 时系统会放行 SetForegroundWindow
   sendInputs([keyInput(VK_MENU, 0)]);
   SetForegroundWindow(hwnd);
   sendInputs([keyInput(VK_MENU, KEYEVENTF_KEYUP)]);
-  return num(GetForegroundWindow()) === hwnd;
+  return isFront(hwnd);
 }
 
 // ---------------------------------------------------------------- 注入
@@ -499,6 +541,8 @@ module.exports = {
   windowTitle,
   frameBounds,
   isFront,
+  foregroundInfo,
+  processElevation,
   isLocked,
   lockWorkStation: () => !!LockWorkStation(),
   /** 让窗口自己关闭，效果和点窗口的 × 一样（发 WM_CLOSE，不动鼠标键盘）。只表示消息发出去了 */

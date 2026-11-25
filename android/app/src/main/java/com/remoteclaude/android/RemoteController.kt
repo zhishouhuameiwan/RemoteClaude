@@ -32,6 +32,7 @@ import com.remoteclaude.android.protocol.HostState
 import com.remoteclaude.android.protocol.IceCandidateSpec
 import com.remoteclaude.android.protocol.IceServerSpec
 import com.remoteclaude.android.protocol.ImageReply
+import com.remoteclaude.android.protocol.InputError
 import com.remoteclaude.android.protocol.LockState
 import com.remoteclaude.android.protocol.TileState
 import com.remoteclaude.android.protocol.UnlockCipher
@@ -1277,8 +1278,8 @@ class RemoteController(private val app: Application) {
             }
         }
 
-        override fun onInputError(session: PeerSession, code: String) {
-            if (session === peer) toast(errorText(code))
+        override fun onInputError(session: PeerSession, error: InputError) {
+            if (session === peer) toast(error.withDetail(errorText(error.code)))
         }
 
         override fun onImageReply(session: PeerSession, reply: ImageReply) {

@@ -7,6 +7,7 @@ import com.remoteclaude.android.protocol.FileReply
 import com.remoteclaude.android.protocol.IceCandidateSpec
 import com.remoteclaude.android.protocol.IceServerSpec
 import com.remoteclaude.android.protocol.ImageReply
+import com.remoteclaude.android.protocol.InputError
 import com.remoteclaude.android.protocol.LockState
 import com.remoteclaude.android.protocol.TileState
 import com.remoteclaude.android.protocol.UnlockResult
@@ -38,7 +39,7 @@ class PeerSession(
         fun onLocalIce(session: PeerSession, candidate: IceCandidateSpec)
         fun onVideoTrack(session: PeerSession, track: VideoTrack)
         fun onConnectionState(session: PeerSession, state: PeerConnection.PeerConnectionState)
-        fun onInputError(session: PeerSession, code: String)
+        fun onInputError(session: PeerSession, error: InputError)
         fun onImageReply(session: PeerSession, reply: ImageReply)
         fun onLockState(session: PeerSession, state: LockState)
         fun onUnlockResult(session: PeerSession, result: UnlockResult)
@@ -127,8 +128,8 @@ class PeerSession(
                         onMain { callbacks.onFileCaps(this@PeerSession, max) }
                         return
                     }
-                    val code = Protocol.parseInputError(text) ?: return
-                    onMain { callbacks.onInputError(this@PeerSession, code) }
+                    val error = Protocol.parseInputError(text) ?: return
+                    onMain { callbacks.onInputError(this@PeerSession, error) }
                 }
             })
             onMain { input = channel }
